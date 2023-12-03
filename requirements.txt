@@ -1,4 +1,2 @@
-aiogram
-emoji
-websockets
-requests
+aiogram==3.2.0
+websockets==12.0
