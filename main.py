@@ -1,4 +1,5 @@
 from aiogram import Bot
+from aiogram.exceptions import TelegramBadRequest, TelegramEntityTooLarge
 import logging
 from asyncio import set_event_loop, new_event_loop, gather, Task
 from websockets import connect
@@ -22,13 +23,24 @@ async def message_handler(websocket) -> None:
     async for message in websocket:
         logging.info(f"Message: {message}")
         message = json.loads(message)
-        logging.info("Sending message: {} ".format(message))
-        await telegram_bot.send_message(
+        logging.info("Sending message: {} ".format(f'{message["title"]}: {message["message"]}'))
+        try:
+          await telegram_bot.send_message(
             chat_id=CHAT_ID,
             text=f'{message["title"]}: {message["message"]}',
-            parse_mode="Markdown",
-        )
-
+            parse_mode="MarkdownV2",
+          )
+        except TelegramBadRequest:
+          logging.info("Message malformed, resending with HTML formatting")
+          await telegram_bot.send_message(
+            chat_id=CHAT_ID,
+            text=f'{message["title"]}: {message["message"][:4000]}',
+            parse_mode="HTML",
+          )
+        except TelegramEntityTooLarge:
+          logging.info("Message too long, should truncate?..")
+        except:
+          logging.info("Unknown exception")
 
 async def websocket_gotify(hostname: str, port: int, token: str) -> None:
     logging.info("Starting Gotify Websocket...")
