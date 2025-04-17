@@ -55,18 +55,20 @@ async def websocket_gotify(hostname: str, port: int, token: str) -> None:
 if __name__ == "__main__":
     loop = new_event_loop()
     set_event_loop(loop)
-
-    loop.create_task(
-        websocket_gotify(hostname=GOTIFY_URL, port=GOTIFY_PORT, token=CLIENT_TOKEN)
-    )
-    try:
-        loop.run_forever()
-    except KeyboardInterrupt:
-        print("Received exit, exiting")
-    finally:
-        pending_tasks = [
-            task for task in Task.all_tasks() if not task.done()
-        ]
-        loop.run_until_complete(gather(*pending_tasks))
-        loop.close()
+    infinity = True
+    while infinity:
+        loop.create_task(
+            websocket_gotify(hostname=GOTIFY_URL, port=GOTIFY_PORT, token=CLIENT_TOKEN)
+        )
+        try:
+            loop.run_forever()
+        except KeyboardInterrupt:
+            print("Received exit, exiting")
+            infinity = False
+        finally:
+            pending_tasks = [
+                task for task in Task.all_tasks() if not task.done()
+            ]
+            loop.run_until_complete(gather(*pending_tasks))
+            loop.close()
 
