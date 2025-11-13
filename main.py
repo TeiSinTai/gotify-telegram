@@ -17,30 +17,75 @@ logging.basicConfig(level=logging.INFO)
 
 telegram_bot = Bot(token=TELEGRAM_TOKEN)
 
+errorCounter = 0
+
+# define an exception handler
+def exception_handler(loop, context):
+  print("Global exception handler called: {}".format(context["message"]))
 
 # Gotify Web Socket Methods
 async def message_handler(websocket) -> None:
     async for message in websocket:
+        global errorCounter
         logging.info(f"Message: {message}")
         message = json.loads(message)
-        logging.info("Sending message: {} ".format(f'{message["title"]}: {message["message"]}'))
+        # -+=()._ are reserved symbols, TG require them to be backslash escaped
+        # _ is used in italic formatting
+        e_message = message["message"].translate(str.maketrans({"-":  r"\-",
+                                          "]":  r"\]",
+                                          "+":  r"\+",
+                                          "_":  r"\_",
+                                          "=":  r"\=",
+                                          "(":  r"\(",
+                                          ")":  r"\)",
+                                          #"^":  r"\^",
+                                          #"$":  r"\$",
+                                          #"*":  r"\*",
+                                          ".":  r"\.",
+                                          "\\": r"\\"
+                                          }))
+        e_title = message["title"].translate(str.maketrans({"-":  r"\-",
+                                          "]":  r"\]",
+                                          "+":  r"\+",
+                                          "_":  r"\_",
+                                          "=":  r"\=",
+                                          "(":  r"\(",
+                                          ")":  r"\)",
+                                          #"^":  r"\^",
+                                          #"$":  r"\$",
+                                          #"*":  r"\*",
+                                          ".":  r"\.",
+                                          "\\": r"\\"
+                                          }))
+        logging.info("Sending message: {} ".format(f'{message["title"]}: {message["message"][:50]}...'))
+        success = False
         try:
           await telegram_bot.send_message(
             chat_id=CHAT_ID,
-            text=f'{message["title"]}: {message["message"]}',
+            text=f'{e_title}: {e_message}',
             parse_mode="MarkdownV2",
           )
-        except TelegramBadRequest:
-          logging.info("Message malformed, resending with HTML formatting")
-          await telegram_bot.send_message(
-            chat_id=CHAT_ID,
-            text=f'{message["title"]}: {message["message"][:4000]}',
-            parse_mode="HTML",
-          )
+          success = True
+        except TelegramBadRequest as e:
+          logging.info("Message malformed, details: {}".format(e))
         except TelegramEntityTooLarge:
           logging.info("Message too long, should truncate?..")
-        except:
-          logging.info("Unknown exception")
+        except Exception as e:
+          logging.info("Unknown exception: {}".format(e))
+        if not success:
+          logging.info("Fallback - sending HTML with truncate")
+          try:
+            await telegram_bot.send_message(
+              chat_id=CHAT_ID,
+              text=f'{message["title"]}: {message["message"][:4000]}',
+              parse_mode="HTML",
+            )
+          except Exception as e:
+            errorCounter = errorCounter + 1
+            logging.info("Fallback N{} failed with exception: {}".format(errorCounter,e))
+          if errorCounter > 5:
+            raise ValueError("Too many errors!")
+
 
 async def websocket_gotify(hostname: str, port: int, token: str) -> None:
     logging.info("Starting Gotify Websocket...")
@@ -49,12 +94,22 @@ async def websocket_gotify(hostname: str, port: int, token: str) -> None:
         logging.info(
             "Connected to Gotify Websocket: {}:{}".format(GOTIFY_URL, GOTIFY_PORT)
         )
-        await message_handler(websocket)
+        failed = False
+        try:
+          await message_handler(websocket)
+        except Exception as e:
+          logging.info("Exception in WebSocket: {}".format(e))
+          failed = True
+        if failed:
+          loop = asyncio.get_running_loop()
+          print("Stopping the event loop from within worker_coroutine")
+          loop.stop() # This stops the application
 
 
 if __name__ == "__main__":
     loop = new_event_loop()
     set_event_loop(loop)
+    loop.set_exception_handler(exception_handler)
     infinity = True
     while infinity:
         loop.create_task(
@@ -65,10 +120,19 @@ if __name__ == "__main__":
         except KeyboardInterrupt:
             print("Received exit, exiting")
             infinity = False
-        finally:
-            pending_tasks = [
-                task for task in Task.all_tasks() if not task.done()
-            ]
-            loop.run_until_complete(gather(*pending_tasks))
-            loop.close()
-
+        except Exception as e:
+            print("Received exception, exiting to restart: {}".format(e))
+            infinity = False
+        if not infinity:
+            try:
+              loop.stop()
+              #pending_tasks = [
+              #  task for task in Task.all_tasks() #if not task.done()
+              #]
+              #for task in pending_tasks:
+              #  task.cancel()
+              #loop.run_until_complete(gather(*pending_tasks))
+              loop.run_until_complete(gather(Task.all_tasks()))
+              loop.close()
+            except Exception as e:
+              print("Failed to exit gracefully: {}".format(e))
