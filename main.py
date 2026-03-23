@@ -1,5 +1,6 @@
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramEntityTooLarge
+from aiogram.client.session.aiohttp import AiohttpSession
 import logging
 from asyncio import set_event_loop, new_event_loop, gather, Task
 from websockets import connect
@@ -15,13 +16,22 @@ CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 
 logging.basicConfig(level=logging.INFO)
 
-telegram_bot = Bot(token=TELEGRAM_TOKEN)
+socks5 = os.environ.get('SOCKS5', 'proxy_not_set')
+if socks5 != 'proxy_not_set':
+  session = AiohttpSession(proxy = socks5)
+  telegram_bot = Bot(token=TELEGRAM_TOKEN, session=session)
+else:
+  telegram_bot = Bot(token=TELEGRAM_TOKEN)
 
 errorCounter = 0
+infinity = True
 
 # define an exception handler
 def exception_handler(loop, context):
+  global infinity
   print("Global exception handler called: {}".format(context["message"]))
+  infinity = False
+  exit(1)
 
 # Gotify Web Socket Methods
 async def message_handler(websocket) -> None:
@@ -88,6 +98,7 @@ async def message_handler(websocket) -> None:
 
 
 async def websocket_gotify(hostname: str, port: int, token: str) -> None:
+    global infinity
     logging.info("Starting Gotify Websocket...")
     websocket_resource_url = f"ws://{hostname}:{port}/stream?token={token}"
     async with connect(uri=websocket_resource_url) as websocket:
@@ -100,39 +111,28 @@ async def websocket_gotify(hostname: str, port: int, token: str) -> None:
         except Exception as e:
           logging.info("Exception in WebSocket: {}".format(e))
           failed = True
+          infinity = False
+          exit(1)
         if failed:
           loop = asyncio.get_running_loop()
+          logging.warning("Stopping the event loop from within worker_coroutine")
           print("Stopping the event loop from within worker_coroutine")
           loop.stop() # This stops the application
-
 
 if __name__ == "__main__":
     loop = new_event_loop()
     set_event_loop(loop)
     loop.set_exception_handler(exception_handler)
-    infinity = True
-    while infinity:
-        loop.create_task(
-            websocket_gotify(hostname=GOTIFY_URL, port=GOTIFY_PORT, token=CLIENT_TOKEN)
-        )
-        try:
-            loop.run_forever()
-        except KeyboardInterrupt:
-            print("Received exit, exiting")
-            infinity = False
-        except Exception as e:
-            print("Received exception, exiting to restart: {}".format(e))
-            infinity = False
-        if not infinity:
-            try:
-              loop.stop()
-              #pending_tasks = [
-              #  task for task in Task.all_tasks() #if not task.done()
-              #]
-              #for task in pending_tasks:
-              #  task.cancel()
-              #loop.run_until_complete(gather(*pending_tasks))
-              loop.run_until_complete(gather(Task.all_tasks()))
-              loop.close()
-            except Exception as e:
-              print("Failed to exit gracefully: {}".format(e))
+    loop.create_task(
+        websocket_gotify(hostname=GOTIFY_URL, port=GOTIFY_PORT, token=CLIENT_TOKEN)
+    )
+    try:
+        loop.run_forever()
+    except KeyboardInterrupt:
+        print("Received exit, exiting")
+        logging.info("Received exit, exiting")
+    except Exception as e:
+        print("Received exception, exiting to restart: {}".format(e))
+        logging.info("Received exception, exiting to restart: {}".format(e))
+    loop.run_until_complete(gather(Task.all_tasks()))
+    loop.close()

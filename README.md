@@ -26,3 +26,27 @@ To run this project, you will need to add the following environment variables. O
 - `GOTIFY_CLIENT_TOKEN`
 - `TELEGRAM_TOKEN`
 - `TELEGRAM_CHAT_ID`
+
+## Building
+```
+docker build . -t gotify-telegram
+
+```
+
+## compose example
+```YAML
+version: '3.7'
+
+services:
+
+  gotify-telegram:
+    image: gotify-telegram
+    container_name: gotify-telegram
+    restart: unless-stopped
+    environment:
+      - GOTIFY_URL=A.B.C.D
+      - GOTIFY_PORT=8124
+      - GOTIFY_CLIENT_TOKEN=ZZZZZZZZZZZZZZZZ
+      - TELEGRAM_CHAT_ID=-YYYYYYYYYYYYYYYY
+      - TELEGRAM_TOKEN=NNNNNN:XXXXXXXXXXXXXXXXXXXXXX
+```
